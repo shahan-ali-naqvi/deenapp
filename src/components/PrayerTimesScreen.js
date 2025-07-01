@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, SafeAreaView, ScrollView, PermissionsAndroid, Platform, Alert, ActivityIndicator } from 'react-native'
+import { StyleSheet, Text, View, SafeAreaView, ScrollView, PermissionsAndroid, Platform, Alert, ActivityIndicator, Linking } from 'react-native'
 import React, { useState, useEffect, useCallback } from 'react'
 import Geolocation from 'react-native-geolocation-service'
 import { Coordinates, CalculationMethod, Prayer, PrayerTimes, Madhab } from 'adhan'
@@ -29,6 +29,47 @@ const PrayerTimesScreen = () => {
 
     if (Platform.OS === 'android') {
       try {
+        // First check if permission was previously denied
+        const permissionStatus = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+        )
+        
+        if (permissionStatus === false) {
+          // Permission was denied before, show a more detailed message
+          Alert.alert(
+            'Location Permission Required',
+            'This app needs location access to calculate accurate prayer times. Please enable location permission in Settings.',
+            [
+              {
+                text: 'Open Settings',
+                onPress: () => {
+                  // This will open the app settings
+                  if (Platform.OS === 'android') {
+                    Linking.openSettings()
+                  }
+                },
+              },
+              {
+                text: 'Try Again',
+                onPress: async () => {
+                  const granted = await PermissionsAndroid.request(
+                    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+                    {
+                      title: 'Location Permission',
+                      message: 'Prayer Times needs access to your location to provide accurate prayer times.',
+                      buttonNeutral: 'Ask Me Later',
+                      buttonNegative: 'Cancel',
+                      buttonPositive: 'OK',
+                    },
+                  )
+                  return granted === PermissionsAndroid.RESULTS.GRANTED
+                },
+              },
+            ],
+          )
+          return false
+        }
+
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
           {
@@ -55,14 +96,14 @@ const PrayerTimesScreen = () => {
     const hasPermission = await requestLocationPermission()
     
     if (!hasPermission) {
-      setLocationError('Location permission denied. Using default location.')
+      setLocationError('Location permission denied. Please enable location permission in Settings and ensure GPS is turned on.')
       setLoading(false)
       // Use default location if permission denied
       calculatePrayerTimes(location.latitude, location.longitude, elevation)
       return
     }
-    
-    // Use a better accuracy setting
+
+    // Check if location services are enabled
     Geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude, altitude } = position.coords
@@ -87,7 +128,24 @@ const PrayerTimesScreen = () => {
       },
       (error) => {
         console.log('Geolocation error:', error)
-        setLocationError(`Location error: ${error.message}. Using default coordinates.`)
+        let errorMessage = 'Could not get location. '
+        
+        // Provide more specific error messages
+        switch (error.code) {
+          case 1: // PERMISSION_DENIED
+            errorMessage += 'Location permission denied.'
+            break
+          case 2: // POSITION_UNAVAILABLE
+            errorMessage += 'Please ensure GPS is enabled and you have a clear view of the sky.'
+            break
+          case 3: // TIMEOUT
+            errorMessage += 'Location request timed out. Please try again.'
+            break
+          default:
+            errorMessage += error.message
+        }
+        
+        setLocationError(errorMessage + ' Using default coordinates.')
         setLoading(false)
         // Use default location if can't get current location
         calculatePrayerTimes(location.latitude, location.longitude, elevation)

@@ -7,7 +7,9 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Platform,
-  PermissionsAndroid
+  PermissionsAndroid,
+  Alert,
+  Linking
 } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
 import { SensorTypes, setUpdateIntervalForType } from 'react-native-sensors';
@@ -29,6 +31,47 @@ const QiblaScreen = ({ navigation }) => {
     }
 
     try {
+      // First check if permission was previously denied
+      const permissionStatus = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+      );
+      
+      if (permissionStatus === false) {
+        // Permission was denied before, show a more detailed message
+        Alert.alert(
+          'Location Permission Required',
+          'This app needs location access to show Qibla direction. Please enable location permission in Settings.',
+          [
+            {
+              text: 'Open Settings',
+              onPress: () => {
+                // This will open the app settings
+                if (Platform.OS === 'android') {
+                  Linking.openSettings();
+                }
+              },
+            },
+            {
+              text: 'Try Again',
+              onPress: async () => {
+                const granted = await PermissionsAndroid.request(
+                  PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+                  {
+                    title: "Location Permission",
+                    message: "This app needs access to your location to show Qibla direction.",
+                    buttonNeutral: "Ask Me Later",
+                    buttonNegative: "Cancel",
+                    buttonPositive: "OK"
+                  }
+                );
+                return granted === PermissionsAndroid.RESULTS.GRANTED;
+              },
+            },
+          ],
+        );
+        return false;
+      }
+
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         {
@@ -71,7 +114,7 @@ const QiblaScreen = ({ navigation }) => {
     const hasPermission = await requestLocationPermission();
     
     if (!hasPermission) {
-      setError('Location permission denied');
+      setError('Location permission denied. Please enable location permission in Settings and ensure GPS is turned on.');
       setLoading(false);
       return;
     }
@@ -85,7 +128,24 @@ const QiblaScreen = ({ navigation }) => {
         setLoading(false);
       },
       (error) => {
-        setError('Error getting location: ' + error.message);
+        let errorMessage = 'Could not get location. ';
+        
+        // Provide more specific error messages
+        switch (error.code) {
+          case 1: // PERMISSION_DENIED
+            errorMessage += 'Location permission denied.';
+            break;
+          case 2: // POSITION_UNAVAILABLE
+            errorMessage += 'Please ensure GPS is enabled and you have a clear view of the sky.';
+            break;
+          case 3: // TIMEOUT
+            errorMessage += 'Location request timed out. Please try again.';
+            break;
+          default:
+            errorMessage += error.message;
+        }
+        
+        setError(errorMessage);
         setLoading(false);
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
